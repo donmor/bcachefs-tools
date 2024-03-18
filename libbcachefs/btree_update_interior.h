@@ -32,6 +32,7 @@ struct btree_update {
 	struct closure			cl;
 	struct bch_fs			*c;
 	u64				start_time;
+	unsigned long			ip_started;
 
 	struct list_head		list;
 	struct list_head		unwritten_list;
@@ -162,7 +163,7 @@ int bch2_btree_node_update_key_get_iter(struct btree_trans *, struct btree *,
 					struct bkey_i *, unsigned, bool);
 
 void bch2_btree_set_root_for_read(struct bch_fs *, struct btree *);
-void bch2_btree_root_alloc(struct bch_fs *, enum btree_id);
+void bch2_btree_root_alloc_fake(struct bch_fs *, enum btree_id, unsigned);
 
 static inline unsigned btree_update_reserve_required(struct bch_fs *c,
 						     struct btree *b)

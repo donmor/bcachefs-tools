@@ -12,6 +12,7 @@
 #include "btree_journal_iter.h"
 #include "btree_key_cache.h"
 #include "btree_locking.h"
+#include "btree_repair_missing_root.h"
 #include "btree_update_interior.h"
 #include "btree_io.h"
 #include "btree_gc.h"
@@ -414,6 +415,7 @@ again:
 				bch2_btree_id_str(b->c.btree_id),
 				b->c.level - 1,
 				buf.buf)) {
+			set_bit(b->c.btree_id, &c->btrees_lost_data);
 			bch2_btree_node_evict(trans, cur_k.k);
 			ret = bch2_journal_key_delete(c, b->c.btree_id,
 						      b->c.level, cur_k.k->k.p);
@@ -550,20 +552,30 @@ int bch2_check_topology(struct bch_fs *c)
 	for (i = 0; i < btree_id_nr_alive(c) && !ret; i++) {
 		struct btree_root *r = bch2_btree_id_root(c, i);
 
-		if (!r->alive)
-			continue;
+		if (r->error) {
+			set_bit(i, &c->btrees_lost_data);
+			bch2_btree_root_alloc_fake(c, i, r->level);
+			r->error = 0;
+
+			ret = bch2_repair_missing_btree_node(c, i, r->level, POS_MIN, SPOS_MAX);
+			if (ret)
+				break;
+		}
 
 		b = r->b;
-		if (btree_node_fake(b))
-			continue;
 
 		btree_node_lock_nopath_nofail(trans, &b->c, SIX_LOCK_read);
 		ret = bch2_btree_repair_topology_recurse(trans, b);
 		six_unlock_read(&b->c.lock);
 
 		if (ret == DROP_THIS_NODE) {
-			bch_err(c, "empty btree root - repair unimplemented");
-			ret = -BCH_ERR_fsck_repair_unimplemented;
+			bch_err(c, "empty btree root %s", bch2_btree_id_str(i));
+			bch2_btree_node_hash_remove(&c->btree_cache, b);
+			mutex_lock(&c->btree_cache.lock);
+			list_move(&b->list, &c->btree_cache.freeable);
+			mutex_unlock(&c->btree_cache.lock);
+			bch2_btree_root_alloc_fake(c, i, 0);
+			ret = 0;
 		}
 	}
 
@@ -1033,9 +1045,6 @@ static int bch2_gc_btree_init(struct btree_trans *trans,
 
 	b = bch2_btree_id_root(c, btree_id)->b;
 
-	if (btree_node_fake(b))
-		return 0;
-
 	six_lock_read(&b->c.lock, NULL, NULL);
 	printbuf_reset(&buf);
 	bch2_bpos_to_text(&buf, b->data->min_key);
@@ -1392,11 +1401,11 @@ static int bch2_alloc_write_key(struct btree_trans *trans,
 					 *old,
 					 b->data_type);
 	gc = *b;
-	percpu_up_read(&c->mark_lock);
 
 	if (gc.data_type != old_gc.data_type ||
 	    gc.dirty_sectors != old_gc.dirty_sectors)
 		bch2_dev_usage_update_m(c, ca, &old_gc, &gc);
+	percpu_up_read(&c->mark_lock);
 
 	if (metadata_only &&
 	    gc.data_type != BCH_DATA_sb &&

@@ -456,6 +456,7 @@ enum bch_time_stats {
 
 #include "alloc_types.h"
 #include "btree_types.h"
+#include "btree_repair_missing_root_types.h"
 #include "btree_write_buffer_types.h"
 #include "buckets_types.h"
 #include "buckets_waiting_for_journal_types.h"
@@ -826,6 +827,7 @@ struct bch_fs {
 	struct btree_root	btree_roots_known[BTREE_ID_NR];
 	DARRAY(struct btree_root) btree_roots_extra;
 	struct mutex		btree_root_lock;
+	unsigned long		btrees_lost_data; /* bitmask */
 
 	struct btree_cache	btree_cache;
 
@@ -848,6 +850,8 @@ struct bch_fs {
 
 	struct workqueue_struct	*btree_interior_update_worker;
 	struct work_struct	btree_interior_update_work;
+
+	struct workqueue_struct	*btree_node_rewrite_worker;
 
 	struct list_head	pending_node_rewrites;
 	struct mutex		pending_node_rewrites_lock;
@@ -1101,6 +1105,8 @@ struct bch_fs {
 	u64			journal_entries_base_seq;
 	struct journal_keys	journal_keys;
 	struct list_head	journal_iters;
+
+	struct find_btree_nodes	found_btree_nodes;
 
 	u64			last_bucket_seq_cleanup;
 

@@ -316,8 +316,9 @@ int bch2_extent_update(struct btree_trans *trans,
 						  i_sectors_delta) ?:
 		bch2_trans_update(trans, iter, k, 0) ?:
 		bch2_trans_commit(trans, disk_res, NULL,
-				BCH_TRANS_COMMIT_no_check_rw|
-				BCH_TRANS_COMMIT_no_enospc);
+				  BCH_WATERMARK_btree|
+				  BCH_TRANS_COMMIT_no_check_rw|
+				  BCH_TRANS_COMMIT_no_enospc);
 	if (unlikely(ret))
 		return ret;
 

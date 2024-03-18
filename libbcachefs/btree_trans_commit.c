@@ -985,6 +985,8 @@ int __bch2_trans_commit(struct btree_trans *trans, unsigned flags)
 	struct bch_fs *c = trans->c;
 	int ret = 0;
 
+	EBUG_ON((flags & BCH_WATERMARK_MASK) >= BCH_WATERMARK_NR);
+
 	if (!trans->nr_updates &&
 	    !trans->journal_entries_u64s)
 		goto out_reset;
