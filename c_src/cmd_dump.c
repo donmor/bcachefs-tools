@@ -133,6 +133,7 @@ int cmd_dump(int argc, char *argv[])
 	opt_set(opts, norecovery,	true);
 	opt_set(opts, degraded,		true);
 	opt_set(opts, very_degraded,	true);
+	opt_set(opts, no_splitbrain_check,true);
 	opt_set(opts, nostart,		true);
 	opt_set(opts, retain_recovery_info, true);
 	opt_set(opts, errors,		BCH_ON_ERROR_continue);
