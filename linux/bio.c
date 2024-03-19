@@ -366,6 +366,22 @@ err_free:
 	return NULL;
 }
 
+struct bio *bio_alloc(struct block_device *bdev,
+		      unsigned nr_iovecs,
+		      unsigned opf,
+		      gfp_t gfp_mask)
+{
+	struct bio *bio;
+
+	bio = kmalloc(sizeof(struct bio) +
+		      sizeof(struct bio_vec) * nr_iovecs, gfp_mask);
+	if (unlikely(!bio))
+		return NULL;
+	bio_init(bio, bdev, nr_iovecs ? bio->bi_inline_vecs : NULL, nr_iovecs, opf);
+	bio->bi_pool = NULL;
+	return bio;
+}
+
 void bioset_exit(struct bio_set *bs)
 {
 	mempool_exit(&bs->bio_pool);

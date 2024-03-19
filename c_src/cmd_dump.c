@@ -26,6 +26,7 @@ static void dump_usage(void)
 	     "  -o output     Output qcow2 image(s)\n"
 	     "  -f, --force   Force; overwrite when needed\n"
 	     "  --nojournal   Don't dump entire journal, just dirty entries\n"
+	     "  -s            Scan entire device(s) for btree nodes\n"
 	     "  -h, --help    Display this help and exit\n"
 	     "Report bugs to <linux-bcachefs@vger.kernel.org>");
 }
@@ -77,7 +78,7 @@ static void dump_one_device(struct bch_fs *c, struct bch_dev *ca, int fd,
 					if (ptr->dev == ca->dev_idx)
 						range_add(&data,
 							  ptr->offset << 9,
-							  btree_ptr_sectors_written(&b->key));
+							  btree_ptr_sectors_written(&b->key) << 9);
 			}
 		}
 
@@ -92,12 +93,19 @@ static void dump_one_device(struct bch_fs *c, struct bch_dev *ca, int fd,
 				if (ptr->dev == ca->dev_idx)
 					range_add(&data,
 						  ptr->offset << 9,
-						  btree_ptr_sectors_written(&b->key));
+						  btree_ptr_sectors_written(&b->key) << 9);
 		}
 
 		bch2_trans_iter_exit(trans, &iter);
 		bch2_trans_put(trans);
 	}
+
+	darray_for_each(c->found_btree_nodes.nodes, i)
+		for (unsigned j = 0; j < i->nr_ptrs; j++)
+			if (i->ptrs[j].dev == ca->dev_idx)
+				range_add(&data,
+					  i->ptrs[j].offset << 9,
+					  c->opts.btree_node_size << 9);
 
 	qcow2_write_image(ca->disk_sb.bdev->bd_fd, fd, &data,
 			  max_t(unsigned, c->opts.btree_node_size / 8, block_bytes(c)));
@@ -116,7 +124,7 @@ int cmd_dump(int argc, char *argv[])
 	struct bch_opts opts = bch2_opts_empty();
 	char *out = NULL;
 	unsigned nr_devices = 0;
-	bool force = false, entire_journal = true;
+	bool force = false, entire_journal = true, scan = false;
 	int fd, opt;
 
 	opt_set(opts, direct_io,	false);
@@ -125,10 +133,12 @@ int cmd_dump(int argc, char *argv[])
 	opt_set(opts, norecovery,	true);
 	opt_set(opts, degraded,		true);
 	opt_set(opts, very_degraded,	true);
+	opt_set(opts, nostart,		true);
+	opt_set(opts, retain_recovery_info, true);
 	opt_set(opts, errors,		BCH_ON_ERROR_continue);
 	opt_set(opts, fix_errors,	FSCK_FIX_no);
 
-	while ((opt = getopt_long(argc, argv, "o:fvh",
+	while ((opt = getopt_long(argc, argv, "o:fsvh",
 				  longopts, NULL)) != -1)
 		switch (opt) {
 		case 'o':
@@ -139,6 +149,9 @@ int cmd_dump(int argc, char *argv[])
 			break;
 		case 'j':
 			entire_journal = false;
+			break;
+		case 's':
+			scan = true;
 			break;
 		case 'v':
 			opt_set(opts, verbose, true);
@@ -158,6 +171,13 @@ int cmd_dump(int argc, char *argv[])
 	struct bch_fs *c = bch2_fs_open(argv, argc, opts);
 	if (IS_ERR(c))
 		die("error opening devices: %s", bch2_err_str(PTR_ERR(c)));
+
+	if (scan)
+		c->recovery_passes_explicit |= BIT_ULL(BCH_RECOVERY_PASS_scan_for_btree_nodes);
+
+	int ret = bch2_fs_start(c);
+	if (ret)
+		die("bch2_fs_start() error: %s", bch2_err_str(ret));
 
 	down_read(&c->gc_lock);
 
